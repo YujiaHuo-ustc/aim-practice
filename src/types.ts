@@ -2,9 +2,11 @@ export type SessionStatus = 'idle' | 'running' | 'paused' | 'complete';
 
 export interface TrainingSettings {
   duration: number;
+  targetCount: number;
   targetSize: number;
   spawnRange: number;
   sensitivity: number;
+  sensitivityMode: 'cs2';
   crosshairSize: number;
   crosshairColor: string;
   targetColor: string;
