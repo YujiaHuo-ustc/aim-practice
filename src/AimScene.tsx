@@ -18,6 +18,8 @@ const AIM_YAW_LIMIT = THREE.MathUtils.degToRad(58);
 const AIM_PITCH_LIMIT = 0.72;
 const MAX_POINTER_DELTA = 120;
 const POINTER_LOCK_WARMUP_EVENTS = 2;
+const MAX_TARGETS = 10;
+const CS2_M_YAW_DEGREES = 0.022;
 
 const BACKDROP_PALETTES: Record<
   string,
@@ -79,11 +81,10 @@ export default function AimScene({ settings, running, onShot, onTargetSpawn }: A
   const onTargetSpawnRef = useRef(onTargetSpawn);
   const settingsRef = useRef(settings);
   const runningRef = useRef(running);
-  const targetSpawnedAtRef = useRef(performance.now());
-  const spawnTargetRef = useRef<(() => void) | null>(null);
+  const activeTargetCountRef = useRef(0);
+  const syncTargetsRef = useRef<((forceRespawn?: boolean) => void) | null>(null);
   const yawRef = useRef(0);
   const pitchRef = useRef(0);
-  const targetRef = useRef<object | null>(null);
 
   const crosshairStyle = useMemo(
     () =>
@@ -161,20 +162,29 @@ export default function AimScene({ settings, running, onShot, onTargetSpawn }: A
       roughness: 0.45,
       metalness: 0.1
     });
-    const target = new THREE.Mesh(targetGeometry, targetMaterial);
-    targetRef.current = target;
-    scene.add(target);
+    const targets = Array.from({ length: MAX_TARGETS }, () => {
+      const target = new THREE.Mesh(targetGeometry, targetMaterial);
+      target.visible = false;
+      scene.add(target);
+      return target;
+    });
 
     const reticleRaycaster = new THREE.Raycaster();
     const direction = new THREE.Vector3();
     const rayOrigin = new THREE.Vector3();
+    const targetSpawnedAt = new Map<object, number>();
+    type TargetMesh = (typeof targets)[number];
     let lastTargetPosition = new THREE.Vector3(999, 999, 999);
     let pendingYawDelta = 0;
     let pendingPitchDelta = 0;
     let ignoredPointerMoves = 0;
     let animationFrame = 0;
 
-    function spawnTarget() {
+    function getTargetCount() {
+      return THREE.MathUtils.clamp(Math.round(settingsRef.current.targetCount), 1, MAX_TARGETS);
+    }
+
+    function getSpawnPosition(targetToIgnore: TargetMesh) {
       const { spawnRange, targetSize } = settingsRef.current;
       const maxX = THREE.MathUtils.mapLinear(spawnRange, 20, 60, 6.2, 15.8);
       const maxY = THREE.MathUtils.mapLinear(spawnRange, 20, 60, 3.8, 8.9);
@@ -186,18 +196,51 @@ export default function AimScene({ settings, running, onShot, onTargetSpawn }: A
           THREE.MathUtils.randFloatSpread(maxY * 2),
           TARGET_DEPTH
         );
-        if (next.distanceTo(lastTargetPosition) > targetSize * 3.2) break;
+        const clearOfLastTarget = next.distanceTo(lastTargetPosition) > targetSize * 3.2;
+        const clearOfVisibleTargets = targets.every(
+          (target) =>
+            target === targetToIgnore ||
+            !target.visible ||
+            next.distanceTo(target.position) > targetSize * 2.6
+        );
+
+        if (clearOfLastTarget && clearOfVisibleTargets) break;
       }
 
       lastTargetPosition = next.clone();
+      return next;
+    }
+
+    function spawnTarget(target: TargetMesh) {
+      const { targetSize } = settingsRef.current;
+      const next = getSpawnPosition(target);
       target.position.copy(next);
       target.scale.setScalar(targetSize);
       target.visible = true;
-      targetSpawnedAtRef.current = performance.now();
+      targetSpawnedAt.set(target, performance.now());
       onTargetSpawnRef.current?.();
     }
 
-    spawnTargetRef.current = spawnTarget;
+    function syncTargets(forceRespawn = false) {
+      const targetCount = getTargetCount();
+      if (!forceRespawn && targetCount === activeTargetCountRef.current) return;
+
+      targets.forEach((target, index) => {
+        if (index < targetCount) {
+          if (forceRespawn || !target.visible) {
+            spawnTarget(target);
+          }
+          return;
+        }
+
+        target.visible = false;
+        targetSpawnedAt.delete(target);
+      });
+
+      activeTargetCountRef.current = targetCount;
+    }
+
+    syncTargetsRef.current = syncTargets;
 
     function updateCamera() {
       camera.rotation.order = 'YXZ';
@@ -219,7 +262,7 @@ export default function AimScene({ settings, running, onShot, onTargetSpawn }: A
     function applyPointerInput() {
       if (pendingYawDelta === 0 && pendingPitchDelta === 0) return;
 
-      const sensitivity = settingsRef.current.sensitivity * 0.0019;
+      const sensitivity = settingsRef.current.sensitivity * THREE.MathUtils.degToRad(CS2_M_YAW_DEGREES);
       yawRef.current -= pendingYawDelta * sensitivity;
       pitchRef.current -= pendingPitchDelta * sensitivity;
       yawRef.current = THREE.MathUtils.clamp(yawRef.current, -AIM_YAW_LIMIT, AIM_YAW_LIMIT);
@@ -240,13 +283,16 @@ export default function AimScene({ settings, running, onShot, onTargetSpawn }: A
       camera.getWorldDirection(direction);
       rayOrigin.setFromMatrixPosition(camera.matrixWorld);
       reticleRaycaster.set(rayOrigin, direction);
-      const intersects = reticleRaycaster.intersectObject(target, false);
-      const hit = intersects.length > 0;
+      const visibleTargets = targets.filter((target) => target.visible);
+      const intersects = reticleRaycaster.intersectObjects(visibleTargets, false);
+      const hitTarget = intersects[0]?.object as TargetMesh | undefined;
+      const hit = Boolean(hitTarget);
 
-      if (hit) {
-        const timeToHitMs = Math.round(performance.now() - targetSpawnedAtRef.current);
+      if (hitTarget) {
+        const shotAt = performance.now();
+        const timeToHitMs = Math.round(shotAt - (targetSpawnedAt.get(hitTarget) ?? shotAt));
         onShotRef.current(true, timeToHitMs);
-        spawnTarget();
+        spawnTarget(hitTarget);
       } else {
         onShotRef.current(false);
       }
@@ -266,6 +312,7 @@ export default function AimScene({ settings, running, onShot, onTargetSpawn }: A
 
     function animate() {
       applyPointerInput();
+      syncTargets();
       const backdropPalette = getBackdropPalette(settingsRef.current.backgroundColor);
       scene.background = new THREE.Color(backdropPalette.scene);
       scene.fog.color.set(backdropPalette.fog);
@@ -273,14 +320,17 @@ export default function AimScene({ settings, running, onShot, onTargetSpawn }: A
       edgeMaterial.color.set(backdropPalette.edge);
       targetMaterial.color.set(settingsRef.current.targetColor);
       targetMaterial.emissive.set(settingsRef.current.targetColor);
-      target.scale.setScalar(settingsRef.current.targetSize);
-      target.rotation.y += 0.018;
-      target.rotation.x += 0.01;
+      targets.forEach((target) => {
+        if (!target.visible) return;
+        target.scale.setScalar(settingsRef.current.targetSize);
+        target.rotation.y += 0.018;
+        target.rotation.x += 0.01;
+      });
       renderer.render(scene, camera);
       animationFrame = requestAnimationFrame(animate);
     }
 
-    spawnTarget();
+    syncTargets(true);
     updateCamera();
     animate();
 
@@ -302,7 +352,7 @@ export default function AimScene({ settings, running, onShot, onTargetSpawn }: A
       wallMaterial.dispose();
       sideGeometry.dispose();
       edgeMaterial.dispose();
-      spawnTargetRef.current = null;
+      syncTargetsRef.current = null;
       containerEl.removeChild(renderer.domElement);
     };
   }, []);
@@ -311,7 +361,7 @@ export default function AimScene({ settings, running, onShot, onTargetSpawn }: A
     if (running) {
       yawRef.current = 0;
       pitchRef.current = 0;
-      spawnTargetRef.current?.();
+      syncTargetsRef.current?.(true);
       if (containerRef.current) {
         requestPointerLockForTraining(containerRef.current);
       }

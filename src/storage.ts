@@ -2,12 +2,17 @@ import type { TrainingResult, TrainingSettings } from './types';
 
 const SETTINGS_KEY = 'aim-position-trainer.settings';
 const HISTORY_KEY = 'aim-position-trainer.history';
+const LEGACY_SENSITIVITY_FACTOR = 0.0019;
+const CS2_M_YAW_DEGREES = 0.022;
+const CS2_SENSITIVITY_FACTOR = CS2_M_YAW_DEGREES * (Math.PI / 180);
 
 export const defaultSettings: TrainingSettings = {
   duration: 60,
+  targetCount: 1,
   targetSize: 0.72,
   spawnRange: 42,
-  sensitivity: 0.16,
+  sensitivity: 1,
+  sensitivityMode: 'cs2',
   crosshairSize: 18,
   crosshairColor: '#f6f7fb',
   targetColor: '#ff4f5f',
@@ -19,7 +24,15 @@ export function loadSettings(): TrainingSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return defaultSettings;
-    return { ...defaultSettings, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    const settings = { ...defaultSettings, ...parsed };
+
+    if (parsed.sensitivityMode !== 'cs2') {
+      settings.sensitivity = Number((settings.sensitivity * LEGACY_SENSITIVITY_FACTOR / CS2_SENSITIVITY_FACTOR).toFixed(2));
+      settings.sensitivityMode = 'cs2';
+    }
+
+    return settings;
   } catch {
     return defaultSettings;
   }

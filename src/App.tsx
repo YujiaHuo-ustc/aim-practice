@@ -204,6 +204,16 @@ export default function App() {
             onChange={(value) => updateSetting('duration', value)}
           />
           <RangeControl
+            label="目标数量"
+            value={settings.targetCount}
+            min={1}
+            max={10}
+            step={1}
+            suffix="个"
+            disabled={sessionActive}
+            onChange={(value) => updateSetting('targetCount', value)}
+          />
+          <RangeControl
             label="目标大小"
             value={settings.targetSize}
             min={0.18}
@@ -224,10 +234,10 @@ export default function App() {
             onChange={(value) => updateSetting('spawnRange', value)}
           />
           <RangeControl
-            label="灵敏度"
+            label="CS2 灵敏度"
             value={settings.sensitivity}
-            min={0.06}
-            max={0.32}
+            min={0.1}
+            max={5}
             step={0.01}
             suffix=""
             disabled={sessionActive}
@@ -363,6 +373,28 @@ interface RangeControlProps {
 }
 
 function RangeControl({ label, value, min, max, step, suffix, disabled, onChange }: RangeControlProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [draftValue, setDraftValue] = useState(() => formatControlValue(value, step));
+
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) {
+      setDraftValue(formatControlValue(value, step));
+    }
+  }, [step, value]);
+
+  function commitValue(rawValue: string) {
+    const parsedValue = Number(rawValue);
+
+    if (!Number.isFinite(parsedValue)) {
+      setDraftValue(formatControlValue(value, step));
+      return;
+    }
+
+    const nextValue = normalizeControlValue(parsedValue, min, max, step);
+    setDraftValue(formatControlValue(nextValue, step));
+    onChange(nextValue);
+  }
+
   return (
     <label className="rangeControl">
       <span>
@@ -372,17 +404,58 @@ function RangeControl({ label, value, min, max, step, suffix, disabled, onChange
           {suffix}
         </strong>
       </span>
-      <input
-        type="range"
-        value={value}
-        min={min}
-        max={max}
-        step={step}
-        disabled={disabled}
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
+      <div className="rangeAdjuster">
+        <input
+          type="range"
+          value={value}
+          min={min}
+          max={max}
+          step={step}
+          disabled={disabled}
+          onChange={(event) => onChange(Number(event.target.value))}
+        />
+        <div className="numberInput">
+          <input
+            ref={inputRef}
+            type="number"
+            value={draftValue}
+            min={min}
+            max={max}
+            step={step}
+            disabled={disabled}
+            onChange={(event) => setDraftValue(event.target.value)}
+            onBlur={(event) => commitValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.currentTarget.blur();
+              }
+            }}
+          />
+          {suffix && <em>{suffix}</em>}
+        </div>
+      </div>
     </label>
   );
+}
+
+function normalizeControlValue(value: number, min: number, max: number, step: number) {
+  const clampedValue = Math.min(max, Math.max(min, value));
+  const steppedValue = Math.round((clampedValue - min) / step) * step + min;
+  return Number(steppedValue.toFixed(getStepPrecision(step)));
+}
+
+function formatControlValue(value: number, step: number) {
+  if (Number.isInteger(step)) {
+    return String(Math.round(value));
+  }
+
+  return value.toFixed(getStepPrecision(step)).replace(/\.?0+$/, '');
+}
+
+function getStepPrecision(step: number) {
+  const stepText = String(step);
+  if (!stepText.includes('.')) return 0;
+  return stepText.split('.')[1].length;
 }
 
 interface ColorControlProps {
