@@ -1,0 +1,30 @@
+{
+  "name": "aim-position-trainer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A desktop positioning aim trainer focused on target acquisition practice.",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:desktop": "node scripts/dev-desktop.cjs",
+    "fix:electron": "set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/&& node node_modules/electron/install.js",
+    "build": "tsc && vite build",
+    "start": "electron .",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^35.0.0",
+    "three": "^0.174.0",
+    "vite": "^6.2.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "typescript": "^5.8.2"
+  }
+}
