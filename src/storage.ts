@@ -7,7 +7,9 @@ const CS2_M_YAW_DEGREES = 0.022;
 const CS2_SENSITIVITY_FACTOR = CS2_M_YAW_DEGREES * (Math.PI / 180);
 
 export const defaultSettings: TrainingSettings = {
+  sessionMode: 'time',
   duration: 60,
+  targetGoal: 30,
   targetCount: 1,
   targetSize: 0.72,
   spawnRange: 42,
@@ -63,10 +65,18 @@ function normalizeHistory(history: TrainingResult[]) {
   const seen = new Set<string>();
 
   return history
+    .map((result) => ({
+      ...result,
+      sessionMode: result.sessionMode ?? 'time',
+      elapsedSeconds: result.elapsedSeconds ?? result.duration
+    }))
     .filter((result) => {
       const key = [
         result.startedAt,
+        result.sessionMode,
         result.duration,
+        result.elapsedSeconds,
+        result.targetGoal ?? '',
         result.hits,
         result.shots,
         result.accuracy,

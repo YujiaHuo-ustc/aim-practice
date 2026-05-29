@@ -127,7 +127,13 @@ h2 {
   gap: 8px;
 }
 
+.modeControl {
+  display: grid;
+  gap: 8px;
+}
+
 .rangeControl span,
+.modeControl > span,
 .colorControl,
 .toggle {
   display: flex;
@@ -142,6 +148,32 @@ h2 {
   color: #f7fbff;
   font-size: 13px;
   font-weight: 800;
+}
+
+.modeControl > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.modeControl button {
+  min-height: 32px;
+  border: 0;
+  border-radius: 6px;
+  color: #aebdca;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.modeControl button.active {
+  color: #061014;
+  background: #4ed3ff;
 }
 
 input[type='range'] {
@@ -335,7 +367,7 @@ button:disabled {
   left: 50%;
   z-index: 2;
   display: grid;
-  grid-template-columns: repeat(7, minmax(82px, auto));
+  grid-template-columns: repeat(auto-fit, minmax(82px, auto));
   gap: 8px;
   width: min(920px, calc(100vw - 40px));
   pointer-events: none;
