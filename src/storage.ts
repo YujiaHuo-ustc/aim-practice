@@ -47,14 +47,36 @@ export function loadHistory(): TrainingResult[] {
     const raw = localStorage.getItem(HISTORY_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.slice(0, 20) : [];
+    return Array.isArray(parsed) ? normalizeHistory(parsed) : [];
   } catch {
     return [];
   }
 }
 
 export function saveResult(result: TrainingResult) {
-  const history = [result, ...loadHistory()].slice(0, 20);
+  const history = normalizeHistory([result, ...loadHistory()]);
   localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
   return history;
+}
+
+function normalizeHistory(history: TrainingResult[]) {
+  const seen = new Set<string>();
+
+  return history
+    .filter((result) => {
+      const key = [
+        result.startedAt,
+        result.duration,
+        result.hits,
+        result.shots,
+        result.accuracy,
+        result.averageHitTime,
+        result.score
+      ].join('|');
+
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 20);
 }

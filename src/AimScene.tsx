@@ -179,6 +179,7 @@ export default function AimScene({ settings, running, onShot, onTargetSpawn }: A
     let pendingPitchDelta = 0;
     let ignoredPointerMoves = 0;
     let animationFrame = 0;
+    let resizeFrame = 0;
 
     function getTargetCount() {
       return THREE.MathUtils.clamp(Math.round(settingsRef.current.targetCount), 1, MAX_TARGETS);
@@ -299,9 +300,21 @@ export default function AimScene({ settings, running, onShot, onTargetSpawn }: A
     }
 
     function handleResize() {
+      if (containerEl.clientWidth === 0 || containerEl.clientHeight === 0) return;
       camera.aspect = containerEl.clientWidth / containerEl.clientHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(containerEl.clientWidth, containerEl.clientHeight);
+    }
+
+    function scheduleResize() {
+      if (resizeFrame) {
+        window.cancelAnimationFrame(resizeFrame);
+      }
+
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = 0;
+        handleResize();
+      });
     }
 
     function handlePointerLockChange() {
@@ -337,14 +350,21 @@ export default function AimScene({ settings, running, onShot, onTargetSpawn }: A
     containerEl.addEventListener('mousedown', handlePointerDown);
     document.addEventListener('mousemove', handlePointerMove);
     document.addEventListener('pointerlockchange', handlePointerLockChange);
-    window.addEventListener('resize', handleResize);
+    window.addEventListener('resize', scheduleResize);
+    const resizeObserver = new ResizeObserver(scheduleResize);
+    resizeObserver.observe(containerEl);
+    scheduleResize();
 
     return () => {
       cancelAnimationFrame(animationFrame);
+      if (resizeFrame) {
+        window.cancelAnimationFrame(resizeFrame);
+      }
       containerEl.removeEventListener('mousedown', handlePointerDown);
       document.removeEventListener('mousemove', handlePointerMove);
       document.removeEventListener('pointerlockchange', handlePointerLockChange);
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('resize', scheduleResize);
+      resizeObserver.disconnect();
       renderer.dispose();
       targetGeometry.dispose();
       targetMaterial.dispose();
@@ -358,16 +378,30 @@ export default function AimScene({ settings, running, onShot, onTargetSpawn }: A
   }, []);
 
   useEffect(() => {
+    let pointerLockFrame = 0;
+
     if (running) {
       yawRef.current = 0;
       pitchRef.current = 0;
       syncTargetsRef.current?.(true);
       if (containerRef.current) {
-        requestPointerLockForTraining(containerRef.current);
+        pointerLockFrame = window.requestAnimationFrame(() => {
+          pointerLockFrame = window.requestAnimationFrame(() => {
+            if (runningRef.current && containerRef.current) {
+              requestPointerLockForTraining(containerRef.current);
+            }
+          });
+        });
       }
     } else if (document.pointerLockElement === containerRef.current) {
       document.exitPointerLock();
     }
+
+    return () => {
+      if (pointerLockFrame) {
+        window.cancelAnimationFrame(pointerLockFrame);
+      }
+    };
   }, [running]);
 
   return (
