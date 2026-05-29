@@ -15,7 +15,6 @@
 body {
   margin: 0;
   min-width: 1100px;
-  min-height: 720px;
   overflow: hidden;
 }
 
@@ -50,10 +49,32 @@ input {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  min-height: 0;
+  max-height: 100vh;
   padding: 24px;
   border-color: rgba(255, 255, 255, 0.09);
   background: rgba(9, 12, 17, 0.86);
   backdrop-filter: blur(14px);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.panel::-webkit-scrollbar {
+  width: 10px;
+}
+
+.panel::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.panel::-webkit-scrollbar-thumb {
+  border: 3px solid rgba(9, 12, 17, 0.86);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
 }
 
 .leftPanel {
@@ -306,6 +327,50 @@ button:disabled {
   color: #c9d7e6;
   background: rgba(8, 11, 15, 0.72);
   transform: translateX(-50%);
+}
+
+.trainingHud {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(82px, auto));
+  gap: 8px;
+  width: min(920px, calc(100vw - 40px));
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.hudStat {
+  display: grid;
+  gap: 4px;
+  min-height: 54px;
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 8px;
+  background: rgba(5, 8, 12, 0.66);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+}
+
+.hudStat span {
+  color: #9fb0bf;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.hudStat strong {
+  color: #f7fbff;
+  font-size: 21px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.hudStat.emphasis {
+  border-color: rgba(78, 211, 255, 0.32);
+  background: rgba(8, 23, 31, 0.78);
 }
 
 .statHeader {

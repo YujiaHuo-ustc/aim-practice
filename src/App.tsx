@@ -13,6 +13,7 @@ export default function App() {
   const [nowMs, setNowMs] = useState(0);
   const [elapsedBeforePauseMs, setElapsedBeforePauseMs] = useState(0);
   const [events, setEvents] = useState<ShotEvent[]>([]);
+  const [targetSpawns, setTargetSpawns] = useState(0);
   const [lastResult, setLastResult] = useState<TrainingResult | null>(null);
   const [history, setHistory] = useState<TrainingResult[]>(() => loadHistory());
   const finishingRef = useRef(false);
@@ -64,6 +65,7 @@ export default function App() {
     const averageHitTime = computeAverageHitTime(events);
     const elapsedMs =
       elapsedBeforePauseMs + (status === 'running' ? Math.max(0, nowMs - startMs) : 0);
+    const elapsedMinutes = elapsedMs / 60000;
     const remainingTime = Math.max(0, settings.duration - elapsedMs / 1000);
 
     return {
@@ -71,10 +73,13 @@ export default function App() {
       shots,
       accuracy: computeAccuracy(hits, shots),
       averageHitTime,
+      elapsedSeconds: elapsedMs / 1000,
+      hitsPerMinute: elapsedMinutes > 0 ? Number((hits / elapsedMinutes).toFixed(1)) : 0,
       remainingTime,
-      score: computeScore(hits, shots, averageHitTime)
+      score: computeScore(hits, shots, averageHitTime),
+      targetSpawns
     };
-  }, [elapsedBeforePauseMs, events, nowMs, settings.duration, startMs, status]);
+  }, [elapsedBeforePauseMs, events, nowMs, settings.duration, startMs, status, targetSpawns]);
 
   function updateSetting<K extends keyof TrainingSettings>(key: K, value: TrainingSettings[K]) {
     setSettings((current) => ({ ...current, [key]: value }));
@@ -89,6 +94,7 @@ export default function App() {
     setStartMs(now);
     setNowMs(now);
     setElapsedBeforePauseMs(0);
+    setTargetSpawns(0);
     setLastResult(null);
     setStatus('running');
   }
@@ -155,6 +161,12 @@ export default function App() {
     }
   }
 
+  function handleTargetSpawn() {
+    if (status === 'running') {
+      setTargetSpawns((current) => current + 1);
+    }
+  }
+
   function resetSettings() {
     setSettings(defaultSettings);
   }
@@ -167,6 +179,7 @@ export default function App() {
     setStatus('idle');
     setLastResult(null);
     setEvents([]);
+    setTargetSpawns(0);
     setStartMs(0);
     setNowMs(0);
     setElapsedBeforePauseMs(0);
@@ -315,7 +328,13 @@ export default function App() {
       </aside>
 
       <section className="trainingArea">
-        <AimScene settings={settings} running={status === 'running'} onShot={handleShot} />
+        <AimScene
+          settings={settings}
+          running={status === 'running'}
+          onShot={handleShot}
+          onTargetSpawn={handleTargetSpawn}
+        />
+        {status === 'running' && <TrainingHud stats={liveStats} />}
         {status === 'complete' && lastResult && (
           <ResultOverlay result={lastResult} onRestart={startSession} onReturnToMenu={returnToMenu} />
         )}
@@ -489,6 +508,41 @@ function ColorControl({ label, value, options, disabled, onChange }: ColorContro
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="stat">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function TrainingHud({
+  stats
+}: {
+  stats: {
+    hits: number;
+    shots: number;
+    accuracy: number;
+    averageHitTime: number;
+    hitsPerMinute: number;
+    remainingTime: number;
+    targetSpawns: number;
+  };
+}) {
+  return (
+    <div className="trainingHud">
+      <HudStat label="剩余" value={`${Math.ceil(stats.remainingTime)}s`} emphasis />
+      <HudStat label="命中" value={stats.hits} />
+      <HudStat label="射击" value={stats.shots} />
+      <HudStat label="刷新" value={stats.targetSpawns} />
+      <HudStat label="命中率" value={`${stats.accuracy}%`} />
+      <HudStat label="分均命中" value={stats.hitsPerMinute} />
+      <HudStat label="平均定位" value={`${stats.averageHitTime}ms`} />
+    </div>
+  );
+}
+
+function HudStat({ label, value, emphasis }: { label: string; value: string | number; emphasis?: boolean }) {
+  return (
+    <div className={emphasis ? 'hudStat emphasis' : 'hudStat'}>
       <span>{label}</span>
       <strong>{value}</strong>
     </div>

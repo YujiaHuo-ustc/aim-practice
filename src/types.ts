@@ -39,6 +39,9 @@ export interface LiveStats {
   shots: number;
   accuracy: number;
   averageHitTime: number;
+  elapsedSeconds: number;
+  hitsPerMinute: number;
   remainingTime: number;
   score: number;
+  targetSpawns: number;
 }
