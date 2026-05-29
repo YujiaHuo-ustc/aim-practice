@@ -19,6 +19,45 @@ const AIM_PITCH_LIMIT = 0.72;
 const MAX_POINTER_DELTA = 120;
 const POINTER_LOCK_WARMUP_EVENTS = 2;
 
+const BACKDROP_PALETTES: Record<
+  string,
+  {
+    scene: string;
+    wall: string;
+    edge: string;
+    fog: string;
+  }
+> = {
+  '#f4f6f8': {
+    scene: '#eef2f6',
+    wall: '#f4f6f8',
+    edge: '#d9e0e8',
+    fog: '#eef2f6'
+  },
+  '#0f1620': {
+    scene: '#090b0f',
+    wall: '#0f1620',
+    edge: '#0b1119',
+    fog: '#090b0f'
+  },
+  '#0e4aa3': {
+    scene: '#071a36',
+    wall: '#0e4aa3',
+    edge: '#0a2f68',
+    fog: '#071a36'
+  },
+  '#9b1c2b': {
+    scene: '#2a070c',
+    wall: '#9b1c2b',
+    edge: '#5f111b',
+    fog: '#2a070c'
+  }
+};
+
+function getBackdropPalette(backgroundColor: string) {
+  return BACKDROP_PALETTES[backgroundColor] ?? BACKDROP_PALETTES['#0f1620'];
+}
+
 function requestPointerLockForTraining(element: HTMLDivElement) {
   const requestPointerLock = element.requestPointerLock as (options?: {
     unadjustedMovement?: boolean;
@@ -68,8 +107,9 @@ export default function AimScene({ settings, running, onShot, onTargetSpawn }: A
     const containerEl = container;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#090b0f');
-    scene.fog = new THREE.Fog('#090b0f', 70, 145);
+    const initialPalette = getBackdropPalette(settingsRef.current.backgroundColor);
+    scene.background = new THREE.Color(initialPalette.scene);
+    scene.fog = new THREE.Fog(initialPalette.fog, 70, 145);
 
     const camera = new THREE.PerspectiveCamera(68, containerEl.clientWidth / containerEl.clientHeight, 0.1, 180);
     camera.position.set(0, 0, CAMERA_DISTANCE);
@@ -88,7 +128,7 @@ export default function AimScene({ settings, running, onShot, onTargetSpawn }: A
 
     const wallGeometry = new THREE.PlaneGeometry(BACKDROP_WIDTH, BACKDROP_HEIGHT, 28, 18);
     const wallMaterial = new THREE.MeshStandardMaterial({
-      color: '#0f1620',
+      color: initialPalette.wall,
       roughness: 0.86,
       metalness: 0.08
     });
@@ -97,7 +137,7 @@ export default function AimScene({ settings, running, onShot, onTargetSpawn }: A
     scene.add(wall);
 
     const edgeMaterial = new THREE.MeshStandardMaterial({
-      color: '#0b1119',
+      color: initialPalette.edge,
       roughness: 0.9,
       metalness: 0.04,
       side: THREE.DoubleSide
@@ -226,6 +266,11 @@ export default function AimScene({ settings, running, onShot, onTargetSpawn }: A
 
     function animate() {
       applyPointerInput();
+      const backdropPalette = getBackdropPalette(settingsRef.current.backgroundColor);
+      scene.background = new THREE.Color(backdropPalette.scene);
+      scene.fog.color.set(backdropPalette.fog);
+      wallMaterial.color.set(backdropPalette.wall);
+      edgeMaterial.color.set(backdropPalette.edge);
       targetMaterial.color.set(settingsRef.current.targetColor);
       targetMaterial.emissive.set(settingsRef.current.targetColor);
       target.scale.setScalar(settingsRef.current.targetSize);

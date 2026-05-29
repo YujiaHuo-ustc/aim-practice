@@ -11,6 +11,7 @@ export const defaultSettings: TrainingSettings = {
   crosshairSize: 18,
   crosshairColor: '#f6f7fb',
   targetColor: '#ff4f5f',
+  backgroundColor: '#0f1620',
   soundEnabled: true
 };
 
