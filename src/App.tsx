@@ -32,13 +32,16 @@ export default function App() {
       const nextNow = performance.now();
       setNowMs(nextNow);
 
-      if ((elapsedBeforePauseMs + nextNow - startMs) / 1000 >= settings.duration) {
+      if (
+        settings.sessionMode === 'time' &&
+        (elapsedBeforePauseMs + nextNow - startMs) / 1000 >= settings.duration
+      ) {
         finishSession();
       }
     }, 100);
 
     return () => window.clearInterval(timer);
-  }, [elapsedBeforePauseMs, settings.duration, startMs, status]);
+  }, [elapsedBeforePauseMs, settings.duration, settings.sessionMode, startMs, status]);
 
   useEffect(() => {
     function handleFullscreenChange() {
@@ -70,6 +73,7 @@ export default function App() {
       elapsedBeforePauseMs + (status === 'running' ? Math.max(0, nowMs - startMs) : 0);
     const elapsedMinutes = elapsedMs / 60000;
     const remainingTime = Math.max(0, settings.duration - elapsedMs / 1000);
+    const remainingTargets = Math.max(0, settings.targetGoal - hits);
 
     return {
       hits,
@@ -78,11 +82,24 @@ export default function App() {
       averageHitTime,
       elapsedSeconds: elapsedMs / 1000,
       hitsPerMinute: elapsedMinutes > 0 ? Number((hits / elapsedMinutes).toFixed(1)) : 0,
+      remainingTargets,
       remainingTime,
       score: computeScore(hits, shots, averageHitTime),
+      sessionMode: settings.sessionMode,
+      targetGoal: settings.targetGoal,
       targetSpawns
     };
-  }, [elapsedBeforePauseMs, events, nowMs, settings.duration, startMs, status, targetSpawns]);
+  }, [
+    elapsedBeforePauseMs,
+    events,
+    nowMs,
+    settings.duration,
+    settings.sessionMode,
+    settings.targetGoal,
+    startMs,
+    status,
+    targetSpawns
+  ]);
 
   function updateSetting<K extends keyof TrainingSettings>(key: K, value: TrainingSettings[K]) {
     setSettings((current) => ({ ...current, [key]: value }));
@@ -150,7 +167,20 @@ export default function App() {
       setNowMs(finishedAt);
     }
 
-    const result = buildResult(startedAtRef.current || startedAt || new Date().toISOString(), settings.duration, eventsRef.current);
+    const elapsedAtFinishMs =
+      elapsedBeforePauseMs + (currentStatus === 'running' ? Math.max(0, finishedAt - startMs) : 0);
+    const elapsedSeconds = Math.max(1, Math.round(elapsedAtFinishMs / 1000));
+    const resultDuration = settings.sessionMode === 'time' ? settings.duration : elapsedSeconds;
+    const result = buildResult(
+      startedAtRef.current || startedAt || new Date().toISOString(),
+      resultDuration,
+      eventsRef.current,
+      {
+        elapsedSeconds,
+        sessionMode: settings.sessionMode,
+        targetGoal: settings.sessionMode === 'targets' ? settings.targetGoal : undefined
+      }
+    );
     setLastResult(result);
     setHistory(saveResult(result));
     statusRef.current = 'complete';
@@ -173,6 +203,13 @@ export default function App() {
 
     if (hit) {
       playHitSound(settings.soundEnabled);
+    }
+
+    if (hit && settings.sessionMode === 'targets') {
+      const hits = nextEvents.filter((event) => event.hit).length;
+      if (hits >= settings.targetGoal) {
+        finishSession();
+      }
     }
   }
 
@@ -224,6 +261,11 @@ export default function App() {
 
         <section className="controlGroup">
           <div className="sectionTitle">训练参数</div>
+          <ModeControl
+            value={settings.sessionMode}
+            disabled={sessionActive}
+            onChange={(value) => updateSetting('sessionMode', value)}
+          />
           <RangeControl
             label="时长"
             value={settings.duration}
@@ -231,8 +273,18 @@ export default function App() {
             max={120}
             step={10}
             suffix="秒"
-            disabled={sessionActive}
+            disabled={sessionActive || settings.sessionMode !== 'time'}
             onChange={(value) => updateSetting('duration', value)}
+          />
+          <RangeControl
+            label="目标总数"
+            value={settings.targetGoal}
+            min={5}
+            max={200}
+            step={1}
+            suffix="个"
+            disabled={sessionActive || settings.sessionMode !== 'targets'}
+            onChange={(value) => updateSetting('targetGoal', value)}
           />
           <RangeControl
             label="目标数量"
@@ -361,12 +413,17 @@ export default function App() {
       <aside className="panel rightPanel">
         <div className="statHeader">
           <span>实时数据</span>
-          <strong>{Math.ceil(liveStats.remainingTime)}s</strong>
+          <strong>
+            {settings.sessionMode === 'time'
+              ? `${Math.ceil(liveStats.remainingTime)}s`
+              : `${liveStats.remainingTargets}个`}
+          </strong>
         </div>
 
         <div className="statGrid">
           <Stat label="命中" value={liveStats.hits} />
           <Stat label="射击" value={liveStats.shots} />
+          {settings.sessionMode === 'targets' && <Stat label="目标进度" value={`${liveStats.hits}/${settings.targetGoal}`} />}
           <Stat label="命中率" value={`${liveStats.accuracy}%`} />
           <Stat label="平均定位" value={`${liveStats.averageHitTime}ms`} />
           <Stat label="当前分" value={liveStats.score} />
@@ -386,7 +443,7 @@ export default function App() {
                     <span>{new Date(result.startedAt).toLocaleString()}</span>
                   </div>
                   <em>
-                    {result.hits}/{result.shots} · {result.accuracy}%
+                    {result.hits}/{result.shots} · {result.accuracy}% · {formatDuration(result.elapsedSeconds ?? result.duration)}
                   </em>
                 </li>
               ))}
@@ -407,6 +464,40 @@ interface RangeControlProps {
   suffix: string;
   disabled?: boolean;
   onChange: (value: number) => void;
+}
+
+function ModeControl({
+  value,
+  disabled,
+  onChange
+}: {
+  value: TrainingSettings['sessionMode'];
+  disabled?: boolean;
+  onChange: (value: TrainingSettings['sessionMode']) => void;
+}) {
+  return (
+    <div className="modeControl">
+      <span>训练模式</span>
+      <div>
+        <button
+          type="button"
+          className={value === 'time' ? 'active' : ''}
+          disabled={disabled}
+          onClick={() => onChange('time')}
+        >
+          计时
+        </button>
+        <button
+          type="button"
+          className={value === 'targets' ? 'active' : ''}
+          disabled={disabled}
+          onClick={() => onChange('targets')}
+        >
+          目标数
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function RangeControl({ label, value, min, max, step, suffix, disabled, onChange }: RangeControlProps) {
@@ -541,15 +632,23 @@ function TrainingHud({
     accuracy: number;
     averageHitTime: number;
     hitsPerMinute: number;
+    remainingTargets: number;
     remainingTime: number;
+    sessionMode: TrainingSettings['sessionMode'];
+    targetGoal: number;
     targetSpawns: number;
   };
 }) {
   return (
     <div className="trainingHud">
-      <HudStat label="剩余" value={`${Math.ceil(stats.remainingTime)}s`} emphasis />
+      <HudStat
+        label={stats.sessionMode === 'time' ? '剩余' : '剩余目标'}
+        value={stats.sessionMode === 'time' ? `${Math.ceil(stats.remainingTime)}s` : stats.remainingTargets}
+        emphasis
+      />
       <HudStat label="命中" value={stats.hits} />
       <HudStat label="射击" value={stats.shots} />
+      {stats.sessionMode === 'targets' && <HudStat label="目标进度" value={`${stats.hits}/${stats.targetGoal}`} />}
       <HudStat label="刷新" value={stats.targetSpawns} />
       <HudStat label="命中率" value={`${stats.accuracy}%`} />
       <HudStat label="分均命中" value={stats.hitsPerMinute} />
@@ -565,6 +664,15 @@ function HudStat({ label, value, emphasis }: { label: string; value: string | nu
       <strong>{value}</strong>
     </div>
   );
+}
+
+function formatDuration(seconds: number) {
+  const safeSeconds = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = safeSeconds % 60;
+
+  if (minutes === 0) return `${remainingSeconds}s`;
+  return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
 }
 
 function ResultOverlay({
@@ -583,9 +691,11 @@ function ResultOverlay({
         <h2>{result.score}</h2>
         <div className="resultStats">
           <Stat label="命中" value={`${result.hits}/${result.shots}`} />
+          <Stat label="用时" value={formatDuration(result.elapsedSeconds ?? result.duration)} />
           <Stat label="命中率" value={`${result.accuracy}%`} />
           <Stat label="平均定位" value={`${result.averageHitTime}ms`} />
           <Stat label="最快定位" value={`${result.bestHitTime}ms`} />
+          {result.sessionMode === 'targets' && <Stat label="目标总数" value={result.targetGoal ?? result.hits} />}
         </div>
         <div className="resultActions">
           <button className="primaryButton" onClick={onRestart}>

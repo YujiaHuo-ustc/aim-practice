@@ -20,7 +20,16 @@ export function computeScore(hits: number, shots: number, averageHitTime: number
   return Math.max(0, Math.round(hits * 100 + accuracyBonus - speedPenalty));
 }
 
-export function buildResult(startedAt: string, duration: number, events: ShotEvent[]): TrainingResult {
+export function buildResult(
+  startedAt: string,
+  duration: number,
+  events: ShotEvent[],
+  options: {
+    elapsedSeconds?: number;
+    sessionMode?: TrainingResult['sessionMode'];
+    targetGoal?: number;
+  } = {}
+): TrainingResult {
   const hits = events.filter((event) => event.hit).length;
   const shots = events.length;
   const hitTimes = events
@@ -31,7 +40,10 @@ export function buildResult(startedAt: string, duration: number, events: ShotEve
   return {
     id: crypto.randomUUID(),
     startedAt,
+    sessionMode: options.sessionMode ?? 'time',
     duration,
+    elapsedSeconds: options.elapsedSeconds ?? duration,
+    targetGoal: options.targetGoal,
     hits,
     shots,
     accuracy: computeAccuracy(hits, shots),

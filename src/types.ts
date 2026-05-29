@@ -1,7 +1,9 @@
 export type SessionStatus = 'idle' | 'running' | 'paused' | 'complete';
 
 export interface TrainingSettings {
+  sessionMode: 'time' | 'targets';
   duration: number;
+  targetGoal: number;
   targetCount: number;
   targetSize: number;
   spawnRange: number;
@@ -24,7 +26,10 @@ export interface ShotEvent {
 export interface TrainingResult {
   id: string;
   startedAt: string;
+  sessionMode: 'time' | 'targets';
   duration: number;
+  elapsedSeconds: number;
+  targetGoal?: number;
   hits: number;
   shots: number;
   accuracy: number;
@@ -41,7 +46,10 @@ export interface LiveStats {
   averageHitTime: number;
   elapsedSeconds: number;
   hitsPerMinute: number;
+  remainingTargets: number;
   remainingTime: number;
   score: number;
+  sessionMode: 'time' | 'targets';
+  targetGoal: number;
   targetSpawns: number;
 }
