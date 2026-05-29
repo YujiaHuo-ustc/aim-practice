@@ -34,6 +34,18 @@ input {
     linear-gradient(135deg, #0a0d12 0%, #0f141b 42%, #090b0f 100%);
 }
 
+.app.trainingMode {
+  grid-template-columns: 1fr;
+}
+
+.app.trainingMode .panel {
+  display: none;
+}
+
+.app.trainingMode .trainingArea {
+  grid-column: 1;
+}
+
 .panel {
   display: flex;
   flex-direction: column;
@@ -344,4 +356,10 @@ button:disabled {
   border-radius: 8px;
   background: rgba(9, 13, 18, 0.95);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+}
+
+.resultActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }

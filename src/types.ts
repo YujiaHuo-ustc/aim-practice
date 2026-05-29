@@ -1,4 +1,4 @@
-export type SessionStatus = 'idle' | 'running' | 'complete';
+export type SessionStatus = 'idle' | 'running' | 'paused' | 'complete';
 
 export interface TrainingSettings {
   duration: number;
@@ -8,6 +8,7 @@ export interface TrainingSettings {
   crosshairSize: number;
   crosshairColor: string;
   targetColor: string;
+  backgroundColor: string;
   soundEnabled: boolean;
 }
 

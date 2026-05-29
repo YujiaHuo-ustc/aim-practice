@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import AimScene from './AimScene';
 import { playHitSound } from './audio';
 import { buildResult, computeAccuracy, computeAverageHitTime, computeScore } from './scoring';
@@ -11,9 +11,11 @@ export default function App() {
   const [startedAt, setStartedAt] = useState<string>('');
   const [startMs, setStartMs] = useState(0);
   const [nowMs, setNowMs] = useState(0);
+  const [elapsedBeforePauseMs, setElapsedBeforePauseMs] = useState(0);
   const [events, setEvents] = useState<ShotEvent[]>([]);
   const [lastResult, setLastResult] = useState<TrainingResult | null>(null);
   const [history, setHistory] = useState<TrainingResult[]>(() => loadHistory());
+  const finishingRef = useRef(false);
 
   useEffect(() => {
     saveSettings(settings);
@@ -26,20 +28,43 @@ export default function App() {
       const nextNow = performance.now();
       setNowMs(nextNow);
 
-      if ((nextNow - startMs) / 1000 >= settings.duration) {
+      if ((elapsedBeforePauseMs + nextNow - startMs) / 1000 >= settings.duration) {
         finishSession();
       }
     }, 100);
 
     return () => window.clearInterval(timer);
-  }, [settings.duration, startMs, status]);
+  }, [elapsedBeforePauseMs, settings.duration, startMs, status]);
+
+  useEffect(() => {
+    function handleFullscreenChange() {
+      if (!document.fullscreenElement && status === 'running' && !finishingRef.current) {
+        pauseSession();
+      }
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, [startMs, status]);
+
+  useEffect(() => {
+    function handlePointerLockChange() {
+      if (!document.pointerLockElement && status === 'running' && !finishingRef.current) {
+        pauseSession();
+      }
+    }
+
+    document.addEventListener('pointerlockchange', handlePointerLockChange);
+    return () => document.removeEventListener('pointerlockchange', handlePointerLockChange);
+  }, [startMs, status]);
 
   const liveStats = useMemo(() => {
     const hits = events.filter((event) => event.hit).length;
     const shots = events.length;
     const averageHitTime = computeAverageHitTime(events);
-    const elapsed = status === 'running' ? Math.max(0, (nowMs - startMs) / 1000) : 0;
-    const remainingTime = status === 'running' ? Math.max(0, settings.duration - elapsed) : settings.duration;
+    const elapsedMs =
+      elapsedBeforePauseMs + (status === 'running' ? Math.max(0, nowMs - startMs) : 0);
+    const remainingTime = Math.max(0, settings.duration - elapsedMs / 1000);
 
     return {
       hits,
@@ -49,7 +74,7 @@ export default function App() {
       remainingTime,
       score: computeScore(hits, shots, averageHitTime)
     };
-  }, [events, nowMs, settings.duration, startMs, status]);
+  }, [elapsedBeforePauseMs, events, nowMs, settings.duration, startMs, status]);
 
   function updateSetting<K extends keyof TrainingSettings>(key: K, value: TrainingSettings[K]) {
     setSettings((current) => ({ ...current, [key]: value }));
@@ -57,17 +82,52 @@ export default function App() {
 
   function startSession() {
     const now = performance.now();
+    finishingRef.current = false;
+    enterFullscreen();
     setEvents([]);
     setStartedAt(new Date().toISOString());
     setStartMs(now);
     setNowMs(now);
+    setElapsedBeforePauseMs(0);
     setLastResult(null);
     setStatus('running');
   }
 
-  function finishSession() {
+  function continueSession() {
+    const now = performance.now();
+    finishingRef.current = false;
+    enterFullscreen();
+    setStartMs(now);
+    setNowMs(now);
+    setStatus('running');
+  }
+
+  function pauseSession() {
+    const pausedAt = performance.now();
     setStatus((current) => {
       if (current !== 'running') return current;
+      setElapsedBeforePauseMs((elapsed) => elapsed + Math.max(0, pausedAt - startMs));
+      setNowMs(pausedAt);
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
+      return 'paused';
+    });
+  }
+
+  function finishSession() {
+    const finishedAt = performance.now();
+    finishingRef.current = true;
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+
+    setStatus((current) => {
+      if (current !== 'running' && current !== 'paused') return current;
+      if (current === 'running') {
+        setElapsedBeforePauseMs((elapsed) => elapsed + Math.max(0, finishedAt - startMs));
+        setNowMs(finishedAt);
+      }
       setEvents((currentEvents) => {
         const result = buildResult(startedAt || new Date().toISOString(), settings.duration, currentEvents);
         setLastResult(result);
@@ -79,7 +139,7 @@ export default function App() {
   }
 
   function handleShot(hit: boolean, timeToHitMs?: number) {
-    const elapsedMs = Math.round(performance.now() - startMs);
+    const elapsedMs = Math.round(elapsedBeforePauseMs + performance.now() - startMs);
     setEvents((current) => [
       ...current,
       {
@@ -99,10 +159,32 @@ export default function App() {
     setSettings(defaultSettings);
   }
 
+  function returnToMenu() {
+    finishingRef.current = false;
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+    setStatus('idle');
+    setLastResult(null);
+    setEvents([]);
+    setStartMs(0);
+    setNowMs(0);
+    setElapsedBeforePauseMs(0);
+  }
+
+  function enterFullscreen() {
+    if (document.fullscreenElement) return;
+
+    document.documentElement.requestFullscreen().catch(() => {
+      // Fullscreen can be blocked outside direct user gestures; training still starts normally.
+    });
+  }
+
   const bestScore = history.reduce((best, result) => Math.max(best, result.score), 0);
+  const sessionActive = status === 'running' || status === 'paused';
 
   return (
-    <main className="app">
+    <main className={status === 'running' ? 'app trainingMode' : 'app'}>
       <aside className="panel leftPanel">
         <div>
           <p className="eyebrow">Aim Position Trainer</p>
@@ -118,17 +200,17 @@ export default function App() {
             max={120}
             step={10}
             suffix="秒"
-            disabled={status === 'running'}
+            disabled={sessionActive}
             onChange={(value) => updateSetting('duration', value)}
           />
           <RangeControl
             label="目标大小"
             value={settings.targetSize}
-            min={0.38}
-            max={1.15}
+            min={0.18}
+            max={2.4}
             step={0.01}
             suffix="x"
-            disabled={status === 'running'}
+            disabled={sessionActive}
             onChange={(value) => updateSetting('targetSize', value)}
           />
           <RangeControl
@@ -138,7 +220,7 @@ export default function App() {
             max={60}
             step={1}
             suffix="deg"
-            disabled={status === 'running'}
+            disabled={sessionActive}
             onChange={(value) => updateSetting('spawnRange', value)}
           />
           <RangeControl
@@ -148,7 +230,7 @@ export default function App() {
             max={0.32}
             step={0.01}
             suffix=""
-            disabled={status === 'running'}
+            disabled={sessionActive}
             onChange={(value) => updateSetting('sensitivity', value)}
           />
         </section>
@@ -159,15 +241,22 @@ export default function App() {
             label="目标颜色"
             value={settings.targetColor}
             options={['#ff4f5f', '#00d1ff', '#ffd166', '#7ef29d']}
-            disabled={status === 'running'}
+            disabled={sessionActive}
             onChange={(value) => updateSetting('targetColor', value)}
           />
           <ColorControl
             label="准星颜色"
             value={settings.crosshairColor}
             options={['#f6f7fb', '#39ff14', '#00d1ff', '#ffcc00']}
-            disabled={status === 'running'}
+            disabled={sessionActive}
             onChange={(value) => updateSetting('crosshairColor', value)}
+          />
+          <ColorControl
+            label="背景颜色"
+            value={settings.backgroundColor}
+            options={['#f4f6f8', '#0f1620', '#0e4aa3', '#9b1c2b']}
+            disabled={sessionActive}
+            onChange={(value) => updateSetting('backgroundColor', value)}
           />
           <RangeControl
             label="准星大小"
@@ -176,14 +265,14 @@ export default function App() {
             max={32}
             step={1}
             suffix="px"
-            disabled={status === 'running'}
+            disabled={sessionActive}
             onChange={(value) => updateSetting('crosshairSize', value)}
           />
           <label className="toggle">
             <input
               type="checkbox"
               checked={settings.soundEnabled}
-              disabled={status === 'running'}
+              disabled={sessionActive}
               onChange={(event) => updateSetting('soundEnabled', event.target.checked)}
             />
             <span>命中音效</span>
@@ -195,12 +284,21 @@ export default function App() {
             <button className="primaryButton danger" onClick={finishSession}>
               结束训练
             </button>
+          ) : status === 'paused' ? (
+            <>
+              <button className="primaryButton" onClick={continueSession}>
+                继续训练
+              </button>
+              <button className="ghostButton" onClick={finishSession}>
+                结束训练
+              </button>
+            </>
           ) : (
             <button className="primaryButton" onClick={startSession}>
               开始训练
             </button>
           )}
-          <button className="ghostButton" disabled={status === 'running'} onClick={resetSettings}>
+          <button className="ghostButton" disabled={sessionActive} onClick={resetSettings}>
             重置参数
           </button>
         </div>
@@ -208,7 +306,9 @@ export default function App() {
 
       <section className="trainingArea">
         <AimScene settings={settings} running={status === 'running'} onShot={handleShot} />
-        {status === 'complete' && lastResult && <ResultOverlay result={lastResult} onRestart={startSession} />}
+        {status === 'complete' && lastResult && (
+          <ResultOverlay result={lastResult} onRestart={startSession} onReturnToMenu={returnToMenu} />
+        )}
       </section>
 
       <aside className="panel rightPanel">
@@ -322,7 +422,15 @@ function Stat({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function ResultOverlay({ result, onRestart }: { result: TrainingResult; onRestart: () => void }) {
+function ResultOverlay({
+  result,
+  onRestart,
+  onReturnToMenu
+}: {
+  result: TrainingResult;
+  onRestart: () => void;
+  onReturnToMenu: () => void;
+}) {
   return (
     <div className="resultOverlay">
       <div className="resultPanel">
@@ -334,9 +442,14 @@ function ResultOverlay({ result, onRestart }: { result: TrainingResult; onRestar
           <Stat label="平均定位" value={`${result.averageHitTime}ms`} />
           <Stat label="最快定位" value={`${result.bestHitTime}ms`} />
         </div>
-        <button className="primaryButton" onClick={onRestart}>
-          再练一局
-        </button>
+        <div className="resultActions">
+          <button className="primaryButton" onClick={onRestart}>
+            再练一局
+          </button>
+          <button className="ghostButton" onClick={onReturnToMenu}>
+            回到菜单
+          </button>
+        </div>
       </div>
     </div>
   );
