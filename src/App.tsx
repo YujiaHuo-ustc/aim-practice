@@ -17,6 +17,9 @@ export default function App() {
   const [lastResult, setLastResult] = useState<TrainingResult | null>(null);
   const [history, setHistory] = useState<TrainingResult[]>(() => loadHistory());
   const finishingRef = useRef(false);
+  const statusRef = useRef<SessionStatus>('idle');
+  const eventsRef = useRef<ShotEvent[]>([]);
+  const startedAtRef = useRef('');
 
   useEffect(() => {
     saveSettings(settings);
@@ -86,75 +89,87 @@ export default function App() {
   }
 
   function startSession() {
-    const now = performance.now();
+    const startedAtIso = new Date().toISOString();
     finishingRef.current = false;
-    enterFullscreen();
+    eventsRef.current = [];
+    startedAtRef.current = startedAtIso;
+    statusRef.current = 'idle';
     setEvents([]);
-    setStartedAt(new Date().toISOString());
-    setStartMs(now);
-    setNowMs(now);
+    setStartedAt(startedAtIso);
     setElapsedBeforePauseMs(0);
     setTargetSpawns(0);
     setLastResult(null);
-    setStatus('running');
+    setStatus('idle');
+
+    enterFullscreen().finally(() => {
+      window.requestAnimationFrame(() => {
+        const now = performance.now();
+        setStartMs(now);
+        setNowMs(now);
+        statusRef.current = 'running';
+        setStatus('running');
+      });
+    });
   }
 
   function continueSession() {
-    const now = performance.now();
     finishingRef.current = false;
-    enterFullscreen();
-    setStartMs(now);
-    setNowMs(now);
-    setStatus('running');
+
+    enterFullscreen().finally(() => {
+      window.requestAnimationFrame(() => {
+        const now = performance.now();
+        setStartMs(now);
+        setNowMs(now);
+        statusRef.current = 'running';
+        setStatus('running');
+      });
+    });
   }
 
   function pauseSession() {
+    if (statusRef.current !== 'running') return;
     const pausedAt = performance.now();
-    setStatus((current) => {
-      if (current !== 'running') return current;
-      setElapsedBeforePauseMs((elapsed) => elapsed + Math.max(0, pausedAt - startMs));
-      setNowMs(pausedAt);
-      if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => {});
-      }
-      return 'paused';
-    });
-  }
-
-  function finishSession() {
-    const finishedAt = performance.now();
-    finishingRef.current = true;
+    statusRef.current = 'paused';
+    setElapsedBeforePauseMs((elapsed) => elapsed + Math.max(0, pausedAt - startMs));
+    setNowMs(pausedAt);
+    setStatus('paused');
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
     }
+  }
 
-    setStatus((current) => {
-      if (current !== 'running' && current !== 'paused') return current;
-      if (current === 'running') {
-        setElapsedBeforePauseMs((elapsed) => elapsed + Math.max(0, finishedAt - startMs));
-        setNowMs(finishedAt);
-      }
-      setEvents((currentEvents) => {
-        const result = buildResult(startedAt || new Date().toISOString(), settings.duration, currentEvents);
-        setLastResult(result);
-        setHistory(saveResult(result));
-        return currentEvents;
-      });
-      return 'complete';
-    });
+  function finishSession() {
+    const currentStatus = statusRef.current;
+    if (finishingRef.current || (currentStatus !== 'running' && currentStatus !== 'paused')) return;
+
+    const finishedAt = performance.now();
+    finishingRef.current = true;
+
+    if (currentStatus === 'running') {
+      setElapsedBeforePauseMs((elapsed) => elapsed + Math.max(0, finishedAt - startMs));
+      setNowMs(finishedAt);
+    }
+
+    const result = buildResult(startedAtRef.current || startedAt || new Date().toISOString(), settings.duration, eventsRef.current);
+    setLastResult(result);
+    setHistory(saveResult(result));
+    statusRef.current = 'complete';
+    setStatus('complete');
   }
 
   function handleShot(hit: boolean, timeToHitMs?: number) {
     const elapsedMs = Math.round(elapsedBeforePauseMs + performance.now() - startMs);
-    setEvents((current) => [
-      ...current,
+    const nextEvents = [
+      ...eventsRef.current,
       {
         id: crypto.randomUUID(),
         hit,
         elapsedMs,
         timeToHitMs
       }
-    ]);
+    ];
+    eventsRef.current = nextEvents;
+    setEvents(nextEvents);
 
     if (hit) {
       playHitSound(settings.soundEnabled);
@@ -173,11 +188,14 @@ export default function App() {
 
   function returnToMenu() {
     finishingRef.current = false;
+    statusRef.current = 'idle';
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
     }
     setStatus('idle');
     setLastResult(null);
+    eventsRef.current = [];
+    startedAtRef.current = '';
     setEvents([]);
     setTargetSpawns(0);
     setStartMs(0);
@@ -186,9 +204,9 @@ export default function App() {
   }
 
   function enterFullscreen() {
-    if (document.fullscreenElement) return;
+    if (document.fullscreenElement) return Promise.resolve();
 
-    document.documentElement.requestFullscreen().catch(() => {
+    return document.documentElement.requestFullscreen().catch(() => {
       // Fullscreen can be blocked outside direct user gestures; training still starts normally.
     });
   }
